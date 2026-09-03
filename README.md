@@ -1,5 +1,3 @@
-# test-dev-senior-smart-online
-
 ## Uso local
 
 ```bash
@@ -7,7 +5,13 @@ cp .env.example .env
 uv sync
 uv run playwright install chromium
 uv run pytest
-uv run python -m test_dev_senior_smart_online
+uv run python -m smart_online_automation
+```
+
+O mesmo comando também está disponível como script instalável:
+
+```bash
+uv run smart-online-automation
 ```
 
 ## Docker Compose

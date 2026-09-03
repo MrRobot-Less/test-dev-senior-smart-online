@@ -10,7 +10,7 @@ services:
     depends_on:
       db:
         condition: service_healthy
-    command: uv run python -m test_dev_senior_smart_online
+    command: uv run python -m smart_online_automation
 
   db:
     image: postgres:17-alpine

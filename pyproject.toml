@@ -1,7 +1,7 @@
 [project]
-name = "test-dev-senior-smart-online"
+name = "smart-online-automation"
 version = "0.1.0"
-description = "Automação de testes senior com Playwright, SQLAlchemy 2, Pydantic Settings, Tenacity e Structlog"
+description = "Automação de navegação com Playwright, SQLAlchemy 2, Pydantic Settings, Tenacity e Structlog"
 readme = "README.md"
 authors = [
     { name = "Gustavo André", email = "gustavodev.dev@gmail.com" }
@@ -16,7 +16,7 @@ dependencies = [
 ]
 
 [project.scripts]
-test-dev-senior-smart-online = "test_dev_senior_smart_online.main:run_cli"
+smart-online-automation = "smart_online_automation.main:run_cli"
 
 [build-system]
 requires = ["uv_build>=0.9.13,<0.10.0"]

@@ -16,4 +16,4 @@ RUN uv run playwright install --with-deps chromium
 
 COPY . .
 
-CMD ["uv", "run", "python", "-m", "test_dev_senior_smart_online"]
+CMD ["uv", "run", "python", "-m", "smart_online_automation"]

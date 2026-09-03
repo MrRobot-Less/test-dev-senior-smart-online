@@ -1,9 +1,9 @@
-from test_dev_senior_smart_online.config import Settings
+from smart_online_automation.config import Settings
 
 
 def test_settings_defaults() -> None:
     settings = Settings(_env_file=None)
-    assert settings.app_name == "test-dev-senior-smart-online"
+    assert settings.app_name == "smart-online-automation"
     assert settings.base_url == "https://example.com"
     assert settings.headless is True
     assert settings.browser == "chromium"

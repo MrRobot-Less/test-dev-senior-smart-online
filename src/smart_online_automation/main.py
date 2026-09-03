@@ -1,10 +1,10 @@
 import asyncio
 
-from test_dev_senior_smart_online.automation import BrowserAutomation
-from test_dev_senior_smart_online.config import Settings, get_settings
-from test_dev_senior_smart_online.database import Base, build_engine, build_session_factory
-from test_dev_senior_smart_online.logging_config import configure_logging, get_logger
-from test_dev_senior_smart_online.models import AutomationRun
+from smart_online_automation.automation import BrowserAutomation
+from smart_online_automation.config import Settings, get_settings
+from smart_online_automation.database import Base, build_engine, build_session_factory
+from smart_online_automation.logging_config import configure_logging, get_logger
+from smart_online_automation.models import AutomationRun
 
 logger = get_logger("main")
 

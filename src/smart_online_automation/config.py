@@ -10,7 +10,7 @@ class Settings(BaseSettings):
         extra="ignore",
     )
 
-    app_name: str = "test-dev-senior-smart-online"
+    app_name: str = "smart-online-automation"
     app_env: str = "development"
     debug: bool = False
 

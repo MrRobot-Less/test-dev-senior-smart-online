@@ -2,8 +2,8 @@ import pytest
 from sqlalchemy.ext.asyncio import create_async_engine
 from sqlalchemy.pool import StaticPool
 
-from test_dev_senior_smart_online.database import Base, build_session_factory
-from test_dev_senior_smart_online.models import AutomationRun
+from smart_online_automation.database import Base, build_session_factory
+from smart_online_automation.models import AutomationRun
 
 
 @pytest.fixture

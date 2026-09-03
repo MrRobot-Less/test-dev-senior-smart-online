@@ -3,8 +3,8 @@ from typing import Any
 from playwright.sync_api import Browser, Page, Playwright, sync_playwright
 from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_fixed
 
-from test_dev_senior_smart_online.config import Settings
-from test_dev_senior_smart_online.logging_config import get_logger
+from smart_online_automation.config import Settings
+from smart_online_automation.logging_config import get_logger
 
 logger = get_logger("automation")
 

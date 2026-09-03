@@ -1,5 +1,5 @@
-from test_dev_senior_smart_online.automation import BrowserAutomation, NavigationError
-from test_dev_senior_smart_online.config import Settings
+from smart_online_automation.automation import BrowserAutomation, NavigationError
+from smart_online_automation.config import Settings
 
 
 def test_page_opens_with_title() -> None:
