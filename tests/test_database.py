@@ -5,12 +5,28 @@ from sqlalchemy.exc import IntegrityError
 
 from smart_online_automation.database import upsert
 from smart_online_automation.models import (
-    ConsultaNfe,
     STATUS_DEBITO,
+    STATUS_PENDENTE,
     STATUS_SEM_DEBITO,
+    ConsultaNfe,
 )
+from smart_online_automation.seed import SEED_KEYS, seed_keys
 
 CHAVE = "33260829612882000128550040000113801131657747"
+
+
+async def test_seed_insere_chaves_uma_vez(session_factory) -> None:
+    async with session_factory() as session:
+        assert await seed_keys(session) == 7
+        await session.commit()
+        assert await seed_keys(session) == 0
+        await session.commit()
+
+    async with session_factory() as session:
+        chaves = (await session.scalars(select(ConsultaNfe))).all()
+        assert len(chaves) == 7
+        assert all(c.status == STATUS_PENDENTE for c in chaves)
+        assert {c.chave for c in chaves} == set(SEED_KEYS)
 
 
 async def test_upsert_insere_e_atualiza_sem_duplicar(session_factory) -> None:
