@@ -23,7 +23,10 @@ class Settings(BaseSettings):
     retry_max_attempts: int = 3
     retry_wait_seconds: float = 2.0
 
-    database_url: str = "sqlite+aiosqlite:///./app.db"
+    db_retry_max_attempts: int = 3
+    db_retry_wait_seconds: float = 1.0
+
+    database_url: str = "postgresql+asyncpg://automation:automation@localhost:5433/automation"
 
     @property
     def is_production(self) -> bool:
