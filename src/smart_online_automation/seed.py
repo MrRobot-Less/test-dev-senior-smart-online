@@ -1,7 +1,7 @@
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from smart_online_automation.database import insert_ignorando_conflito
-from smart_online_automation.models import STATUS_PENDENTE, ConsultaNfe
+from smart_online_automation.database import insert_on_conflict_ignore
+from smart_online_automation.models import STATUS_PENDING, NfeQuery
 
 SEED_KEYS = [
     "33260829612882000128550040000113801131657747",
@@ -22,5 +22,5 @@ SEED_KEYS = [
 
 
 async def seed_keys(session: AsyncSession) -> int:
-    rows = [{"chave": chave, "status": STATUS_PENDENTE} for chave in SEED_KEYS]
-    return await insert_ignorando_conflito(session, ConsultaNfe, rows)
+    rows = [{"chave": key, "status": STATUS_PENDING} for key in SEED_KEYS]
+    return await insert_on_conflict_ignore(session, NfeQuery, rows)

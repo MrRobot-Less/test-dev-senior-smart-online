@@ -12,184 +12,186 @@ from smart_online_automation.database import (
     Base,
     build_engine,
     build_session_factory,
-    insert_ignorando_conflito,
+    insert_on_conflict_ignore,
     upsert,
 )
 from smart_online_automation.logging_config import configure_logging, get_logger
-from smart_online_automation.models import STATUS_ERRO, STATUS_PENDENTE, ConsultaNfe
-from smart_online_automation.portal import ConsultaResult, PortalClient, PortalIndisponivelError
+from smart_online_automation.models import STATUS_ERROR, STATUS_PENDING, NfeQuery
+from smart_online_automation.portal import PortalClient, PortalUnavailableError, QueryResult
 from smart_online_automation.seed import SEED_KEYS, seed_keys
 
 logger = get_logger("main")
 
 
-async def _garantir_esquema(settings: Settings, resetar: bool = False):
+async def _ensure_schema(settings: Settings, reset: bool = False):
     engine = build_engine(settings.database_url)
-    ultimo_erro: Exception | None = None
-    for tentativa in range(settings.db_retry_max_attempts):
+    last_error: Exception | None = None
+    for attempt in range(settings.db_retry_max_attempts):
         try:
             async with engine.begin() as conn:
-                if resetar:
+                if reset:
                     await conn.run_sync(Base.metadata.drop_all)
                 await conn.run_sync(Base.metadata.create_all)
             return engine
         except Exception as exc:
-            ultimo_erro = exc
-            if tentativa + 1 >= settings.db_retry_max_attempts:
+            last_error = exc
+            if attempt + 1 >= settings.db_retry_max_attempts:
                 break
             logger.warning(
-                "banco_instavel", tentativa=tentativa + 1, error=str(exc)
+                "banco_instavel", attempt=attempt + 1, error=str(exc)
             )
             await asyncio.sleep(settings.db_retry_wait_seconds)
     await engine.dispose()
-    if ultimo_erro is None:
-        ultimo_erro = RuntimeError("sem tentativas de conexao configuradas")
-    raise ultimo_erro
+    if last_error is None:
+        last_error = RuntimeError("sem tentativas de conexao configuradas")
+    raise last_error
 
 
 async def seed(settings: Settings) -> None:
-    engine = await _garantir_esquema(settings)
+    engine = await _ensure_schema(settings)
     async with build_session_factory(engine)() as session:
-        inseridas = await seed_keys(session)
+        inserted = await seed_keys(session)
         await session.commit()
     await engine.dispose()
-    logger.info("seed_concluido", inseridas=inseridas, total=len(SEED_KEYS))
+    logger.info("seed_concluido", inserted=inserted, total=len(SEED_KEYS))
 
 
 async def review(settings: Settings) -> None:
-    engine = await _garantir_esquema(settings)
+    engine = await _ensure_schema(settings)
     async with build_session_factory(engine)() as session:
-        registros = (await session.scalars(select(ConsultaNfe).order_by(ConsultaNfe.chave))).all()
-        for registro in registros:
-            valor = f"R$ {registro.valor_pagar:.2f}" if registro.valor_pagar is not None else "-"
+        records = (
+            await session.scalars(select(NfeQuery).order_by(NfeQuery.chave))
+        ).all()
+        for record in records:
+            valor = f"R$ {record.valor_pagar:.2f}" if record.valor_pagar is not None else "-"
             print(
-                f"{registro.chave}  {registro.status:<10}  {valor:<12}  "
-                f"tentativas={registro.tentativas}"
+                f"{record.chave}  {record.status:<10}  {valor:<12}  "
+                f"tentativas={record.tentativas}"
             )
     await engine.dispose()
-    logger.info("review_concluido", chaves=len(registros))
+    logger.info("review_concluido", keys=len(records))
 
 
 async def reset(settings: Settings) -> None:
-    engine = await _garantir_esquema(settings, resetar=True)
+    engine = await _ensure_schema(settings, reset=True)
     async with build_session_factory(engine)() as session:
-        inseridas = await seed_keys(session)
+        inserted = await seed_keys(session)
         await session.commit()
     await engine.dispose()
-    logger.info("reset_concluido", chaves=inseridas)
+    logger.info("reset_concluido", keys=inserted)
 
 
-async def consultar_com_retry(
-    portal: PortalClient, page: Any, settings: Settings, chave: str
-) -> ConsultaResult:
-    ultimo_erro: PortalIndisponivelError | None = None
-    for tentativa in range(1, settings.retry_max_attempts + 1):
+async def query_with_retry(
+    portal: PortalClient, page: Any, settings: Settings, key: str
+) -> QueryResult:
+    last_error: PortalUnavailableError | None = None
+    for attempt in range(1, settings.retry_max_attempts + 1):
         try:
-            resultado = await portal.consultar(page, chave)
-            return replace(resultado, tentativas=tentativa)
-        except PortalIndisponivelError as exc:
-            ultimo_erro = exc
-            if tentativa < settings.retry_max_attempts:
+            result = await portal.query(page, key)
+            return replace(result, attempts=attempt)
+        except PortalUnavailableError as exc:
+            last_error = exc
+            if attempt < settings.retry_max_attempts:
                 await asyncio.sleep(settings.retry_wait_seconds)
-    return ConsultaResult(
-        status=STATUS_ERRO,
-        detalhes=str(ultimo_erro),
-        tentativas=settings.retry_max_attempts,
+    return QueryResult(
+        status=STATUS_ERROR,
+        detalhes=str(last_error),
+        attempts=settings.retry_max_attempts,
     )
 
 
-async def _persistir_com_retry(settings: Settings, session_factory, valores: dict) -> None:
-    for tentativa in range(settings.db_retry_max_attempts):
+async def _persist_with_retry(settings: Settings, session_factory, values: dict) -> None:
+    for attempt in range(settings.db_retry_max_attempts):
         try:
             async with session_factory() as session:
-                await upsert(session, ConsultaNfe, valores)
+                await upsert(session, NfeQuery, values)
                 await session.commit()
             return
         except OperationalError as exc:
-            if tentativa + 1 >= settings.db_retry_max_attempts:
+            if attempt + 1 >= settings.db_retry_max_attempts:
                 raise
             logger.warning(
-                "persistencia_instavel", tentativa=tentativa + 1, error=str(exc)
+                "persistencia_instavel", attempt=attempt + 1, error=str(exc)
             )
             await asyncio.sleep(settings.db_retry_wait_seconds)
 
 
-async def _definir_alvo(
-    session_factory, chaves: list[str] | None, todo: bool
+async def _define_target(
+    session_factory, keys: list[str] | None, todo: bool
 ) -> list[str]:
-    if chaves:
+    if keys:
         async with session_factory() as session:
-            await insert_ignorando_conflito(
+            await insert_on_conflict_ignore(
                 session,
-                ConsultaNfe,
-                [{"chave": chave, "status": STATUS_PENDENTE} for chave in chaves],
+                NfeQuery,
+                [{"chave": key, "status": STATUS_PENDING} for key in keys],
             )
             await session.commit()
-        return list(dict.fromkeys(chaves))
+        return list(dict.fromkeys(keys))
     async with session_factory() as session:
-        stmt = select(ConsultaNfe.chave).order_by(ConsultaNfe.chave)
+        stmt = select(NfeQuery.chave).order_by(NfeQuery.chave)
         if not todo:
-            stmt = stmt.where(ConsultaNfe.status.in_((STATUS_PENDENTE, STATUS_ERRO)))
+            stmt = stmt.where(NfeQuery.status.in_((STATUS_PENDING, STATUS_ERROR)))
         return list(await session.scalars(stmt))
 
 
-async def _processar_chave(
-    settings: Settings, session_factory, portal: PortalClient, page: Any, chave: str
+async def _process_key(
+    settings: Settings, session_factory, portal: PortalClient, page: Any, key: str
 ) -> None:
     async with session_factory() as session:
-        registro = await session.get(ConsultaNfe, chave)
-        tentativas_base = registro.tentativas if registro is not None else 0
+        record = await session.get(NfeQuery, key)
+        base_attempts = record.tentativas if record is not None else 0
     try:
-        resultado = await consultar_com_retry(portal, page, settings, chave)
+        result = await query_with_retry(portal, page, settings, key)
     except Exception as exc:
-        logger.error("consulta_falhou", chave=chave, error=str(exc))
-        resultado = ConsultaResult(
-            status=STATUS_ERRO,
+        logger.error("consulta_falhou", key=key, error=str(exc))
+        result = QueryResult(
+            status=STATUS_ERROR,
             detalhes=str(exc),
-            tentativas=settings.retry_max_attempts,
+            attempts=settings.retry_max_attempts,
         )
-    valores = {
-        "chave": chave,
-        "status": resultado.status,
-        "valor_pagar": resultado.valor_pagar,
-        "detalhes": resultado.detalhes,
-        "tentativas": tentativas_base + resultado.tentativas,
+    values = {
+        "chave": key,
+        "status": result.status,
+        "valor_pagar": result.valor_pagar,
+        "detalhes": result.detalhes,
+        "tentativas": base_attempts + result.attempts,
         "consultada_em": func.now(),
         "atualizada_em": func.now(),
     }
     try:
-        await _persistir_com_retry(settings, session_factory, valores)
+        await _persist_with_retry(settings, session_factory, values)
         logger.info(
             "chave_processada",
-            chave=chave,
-            status=valores["status"],
+            key=key,
+            status=values["status"],
             valor=(
-                str(valores["valor_pagar"]) if valores["valor_pagar"] is not None else None
+                str(values["valor_pagar"]) if values["valor_pagar"] is not None else None
             ),
-            tentativas=valores["tentativas"],
+            tentativas=values["tentativas"],
         )
     except Exception as exc:
-        logger.error("persistencia_falhou", chave=chave, error=str(exc))
+        logger.error("persistencia_falhou", key=key, error=str(exc))
 
 
 async def run(
-    settings: Settings, chaves: list[str] | None = None, todo: bool = False
+    settings: Settings, keys: list[str] | None = None, todo: bool = False
 ) -> None:
-    engine = await _garantir_esquema(settings)
+    engine = await _ensure_schema(settings)
     session_factory = build_session_factory(engine)
-    alvo = await _definir_alvo(session_factory, chaves, todo)
-    if not alvo:
+    target = await _define_target(session_factory, keys, todo)
+    if not target:
         await engine.dispose()
         logger.info("nenhuma_chave_para_consultar")
         return
-    logger.info("run_iniciado", chaves=len(alvo), all=todo)
+    logger.info("run_iniciado", keys=len(target), all=todo)
     try:
         async with BrowserAutomation(settings) as automation:
             page = await automation.open(settings.portal_url)
             portal = PortalClient(settings)
             try:
-                for chave in alvo:
-                    await _processar_chave(settings, session_factory, portal, page, chave)
+                for key in target:
+                    await _process_key(settings, session_factory, portal, page, key)
             finally:
                 try:
                     await page.close()
@@ -199,70 +201,70 @@ async def run(
         await engine.dispose()
 
 
-def _montar_parser() -> argparse.ArgumentParser:
+def _build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="smart-online-automation",
-        description="Consulta NF-e no portal e registra o resultado no banco.",
+        description="Query NF-e keys on the portal and persist the result.",
     )
-    sub = parser.add_subparsers(dest="comando", metavar="comando")
+    sub = parser.add_subparsers(dest="command", metavar="command")
 
-    sub.add_parser("seed", help="cadastra as chaves do teste como pendentes")
-    sub.add_parser("review", help="lista as chaves e o status atual")
-    sub.add_parser("reset", help="recria as tabelas e volta ao estado inicial")
+    sub.add_parser("seed", help="register the test keys as pending")
+    sub.add_parser("review", help="list keys and their current status")
+    sub.add_parser("reset", help="recreate the tables and return to the initial state")
 
     run_parser = sub.add_parser(
-        "run", help="consulta as chaves PENDENTE/ERRO (ou as escolhidas)"
+        "run", help="query PENDING/ERROR keys (or the selected ones)"
     )
     run_parser.add_argument(
-        "--headless", action="store_true", help="roda o navegador sem janela"
+        "--headless", action="store_true", help="run the browser without a window"
     )
     run_parser.add_argument(
-        "--all", action="store_true", help="reprocessa todas as chaves"
+        "--all", action="store_true", help="reprocess all keys"
     )
     run_parser.add_argument(
         "--key",
         action="append",
         metavar="KEY",
-        help="reprocessa uma chave especifica (pode repetir o flag)",
+        help="reprocess a specific key (may repeat the flag)",
     )
     return parser
 
 
-async def _executar(args: argparse.Namespace) -> None:
+async def _execute(args: argparse.Namespace) -> None:
     settings = get_settings()
     configure_logging("DEBUG" if settings.debug else "INFO")
     logger.info(
         "comando_iniciado",
-        comando=args.comando,
+        command=args.command,
         app=settings.app_name,
         env=settings.app_env,
     )
-    if args.comando == "seed":
+    if args.command == "seed":
         await seed(settings)
         return
-    if args.comando == "review":
+    if args.command == "review":
         await review(settings)
         return
-    if args.comando == "reset":
+    if args.command == "reset":
         await reset(settings)
         return
     if args.headless:
         settings = settings.model_copy(update={"headless": True})
-    await run(settings, chaves=args.key, todo=args.all)
+    await run(settings, keys=args.key, todo=args.all)
 
 
 def run_cli(argv: list[str] | None = None) -> None:
-    parser = _montar_parser()
+    parser = _build_parser()
     args = parser.parse_args(argv)
-    if args.comando is None:
+    if args.command is None:
         parser.print_help()
         return
     try:
-        asyncio.run(_executar(args))
+        asyncio.run(_execute(args))
     except KeyboardInterrupt:
         raise SystemExit(130) from None
     except Exception as exc:
-        logger.error("comando_falhou", comando=args.comando, error=str(exc))
+        logger.error("comando_falhou", command=args.command, error=str(exc))
         raise SystemExit(1) from None
 
 

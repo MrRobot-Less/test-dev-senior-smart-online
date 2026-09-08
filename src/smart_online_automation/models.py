@@ -6,12 +6,12 @@ from sqlalchemy.orm import Mapped, mapped_column
 
 from smart_online_automation.database import Base
 
-STATUS_PENDENTE = "PENDENTE"
-STATUS_DEBITO = "DEBITO"
-STATUS_SEM_DEBITO = "SEM_DEBITO"
-STATUS_ERRO = "ERRO"
+STATUS_PENDING = "PENDENTE"
+STATUS_DEBIT = "DEBITO"
+STATUS_NO_DEBIT = "SEM_DEBITO"
+STATUS_ERROR = "ERRO"
 
-class ConsultaNfe(Base):
+class NfeQuery(Base):
     __tablename__ = "consultas_nfe"
     __table_args__ = (
         CheckConstraint(

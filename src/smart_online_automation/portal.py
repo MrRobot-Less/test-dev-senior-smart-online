@@ -8,261 +8,261 @@ from playwright.async_api import TimeoutError as PlaywrightTimeoutError
 
 from smart_online_automation.config import Settings
 from smart_online_automation.logging_config import get_logger
-from smart_online_automation.models import STATUS_DEBITO, STATUS_ERRO, STATUS_SEM_DEBITO
+from smart_online_automation.models import STATUS_DEBIT, STATUS_ERROR, STATUS_NO_DEBIT
 
-PREFIXO_VALOR = "R$"
+VALUE_PREFIX = "R$"
 
 logger = get_logger("portal")
 
 
-class PortalIndisponivelError(RuntimeError):
+class PortalUnavailableError(RuntimeError):
     pass
 
 
 @dataclass
-class ConsultaResult:
+class QueryResult:
     status: str
     valor_pagar: Decimal | None = None
     detalhes: str | None = None
-    tentativas: int = 1
+    attempts: int = 1
 
 
-def _inteiro_valido(inteiro: str) -> bool:
-    if not inteiro or not all(c.isdigit() or c == "." for c in inteiro):
+def _is_valid_integer(integer: str) -> bool:
+    if not integer or not all(c.isdigit() or c == "." for c in integer):
         return False
-    if inteiro.startswith(".") or inteiro.endswith("."):
+    if integer.startswith(".") or integer.endswith("."):
         return False
-    if "." not in inteiro:
+    if "." not in integer:
         return True
-    partes = inteiro.split(".")
+    partes = integer.split(".")
     return len(partes[0]) <= 3 and all(len(parte) == 3 and parte.isdigit() for parte in partes[1:])
 
 
-def _parse_valor_token(trecho: str) -> Decimal | None:
-    fim = 0
-    while fim < len(trecho) and (trecho[fim].isdigit() or trecho[fim] in ".,"):
-        fim += 1
-    token = trecho[:fim]
+def _parse_value_token(snippet: str) -> Decimal | None:
+    deadline = 0
+    while deadline < len(snippet) and (snippet[deadline].isdigit() or snippet[deadline] in ".,"):
+        deadline += 1
+    token = snippet[:deadline]
     if "," not in token:
         return None
-    inteiro, fracao = token.rsplit(",", 1)
-    if len(fracao) != 2 or not fracao.isdigit() or not _inteiro_valido(inteiro):
+    integer, fracao = token.rsplit(",", 1)
+    if len(fracao) != 2 or not fracao.isdigit() or not _is_valid_integer(integer):
         return None
-    return Decimal(inteiro.replace(".", "") + "." + fracao)
+    return Decimal(integer.replace(".", "") + "." + fracao)
 
 
-def _extrair_valor_brl(texto: str) -> Decimal | None:
+def _extract_brl_value(text: str) -> Decimal | None:
     cursor = 0
     while True:
-        inicio = texto.find(PREFIXO_VALOR, cursor)
+        inicio = text.find(VALUE_PREFIX, cursor)
         if inicio == -1:
             return None
-        pos = inicio + len(PREFIXO_VALOR)
-        while pos < len(texto) and texto[pos].isspace():
+        pos = inicio + len(VALUE_PREFIX)
+        while pos < len(text) and text[pos].isspace():
             pos += 1
-        valor = _parse_valor_token(texto[pos:])
-        if valor is not None:
-            return valor
+        value = _parse_value_token(text[pos:])
+        if value is not None:
+            return value
         cursor = pos
 
 
-def classificar_consulta(texto_dialogo: str) -> ConsultaResult:
-    texto = " ".join(texto_dialogo.split())
-    if "não foi liberado para pagamento" in texto or "débito é inexistente" in texto:
-        return ConsultaResult(status=STATUS_SEM_DEBITO)
-    valor = _extrair_valor_brl(texto)
-    if valor is not None:
-        return ConsultaResult(status=STATUS_DEBITO, valor_pagar=valor)
-    return ConsultaResult(status=STATUS_ERRO, detalhes=f"resultado_nao_reconhecido: {texto[:200]}")
+def classify_dialog(dialog_text: str) -> QueryResult:
+    text = " ".join(dialog_text.split())
+    if "não foi liberado para pagamento" in text or "débito é inexistente" in text:
+        return QueryResult(status=STATUS_NO_DEBIT)
+    value = _extract_brl_value(text)
+    if value is not None:
+        return QueryResult(status=STATUS_DEBIT, valor_pagar=value)
+    return QueryResult(status=STATUS_ERROR, detalhes=f"resultado_nao_reconhecido: {text[:200]}")
 
 
-def classificar_detalhes(texto: str) -> ConsultaResult:
-    valor = _extrair_valor_brl(texto)
-    if valor is None:
-        return ConsultaResult(
-            status=STATUS_ERRO,
-            detalhes=f"resultado_nao_reconhecido: {' '.join(texto.split())[:200]}",
+def classify_details(text: str) -> QueryResult:
+    value = _extract_brl_value(text)
+    if value is None:
+        return QueryResult(
+            status=STATUS_ERROR,
+            detalhes=f"resultado_nao_reconhecido: {' '.join(text.split())[:200]}",
         )
-    if valor == 0:
-        return ConsultaResult(status=STATUS_SEM_DEBITO)
-    return ConsultaResult(status=STATUS_DEBITO, valor_pagar=valor)
+    if value == 0:
+        return QueryResult(status=STATUS_NO_DEBIT)
+    return QueryResult(status=STATUS_DEBIT, valor_pagar=value)
 
 
 class PortalClient:
     def __init__(self, settings: Settings) -> None:
         self._settings = settings
 
-    async def consultar(self, page: Page, chave: str) -> ConsultaResult:
-        logger.info("consulta_iniciada", chave=chave)
-        await self._garantir_sem_dialogo(page)
+    async def query(self, page: Page, key: str) -> QueryResult:
+        logger.info("consulta_iniciada", key=key)
+        await self._ensure_no_dialog(page)
         input_el = page.locator(
             f'input[placeholder="{self._settings.portal_input_placeholder}"]'
         )
-        await input_el.fill(chave)
-        await self._selecionar_filtro(page)
+        await input_el.fill(key)
+        await self._select_filter(page)
         await page.wait_for_timeout(self._settings.portal_filtro_espera_ms)
         await page.get_by_role("button", name=self._settings.portal_search_button).click()
-        dialogo = page.locator(f"[role={self._settings.portal_dialog_role}]")
+        dialog = page.locator(f"[role={self._settings.portal_dialog_role}]")
         total = page.get_by_text(self._settings.portal_total_recolher_text, exact=False)
 
         try:
-            resultado = await self._aguardar_resultado(page, dialogo, total)
+            result = await self._wait_for_result(page, dialog, total)
         finally:
             with suppress(Exception):
-                await self._recarregar_busca(page)
-        return resultado
+                await self._reload_search(page)
+        return result
 
-    async def _aguardar_resultado(self, page: Page, dialogo, total) -> ConsultaResult:
-        fim = (
+    async def _wait_for_result(self, page: Page, dialog, total) -> QueryResult:
+        deadline = (
             asyncio.get_running_loop().time()
             + self._settings.portal_result_timeout_ms / 1000
         )
-        intervalo = self._settings.portal_filtro_espera_ms / 1000
-        valor_anterior: Decimal | None = None
+        interval = self._settings.portal_filtro_espera_ms / 1000
+        previous_value: Decimal | None = None
         while True:
-            if await dialogo.count() and await dialogo.first.is_visible():
-                texto_dialogo = await dialogo.inner_text()
-                resultado = classificar_consulta(texto_dialogo)
-                if resultado.valor_pagar is None:
+            if await dialog.count() and await dialog.first.is_visible():
+                dialog_text = await dialog.inner_text()
+                result = classify_dialog(dialog_text)
+                if result.valor_pagar is None:
                     logger.warning(
                         "dados_nao_extraidos",
-                        status=resultado.status,
-                        dialogo=" ".join(texto_dialogo.split())[:200],
+                        status=result.status,
+                        dialog=" ".join(dialog_text.split())[:200],
                     )
                 with suppress(Exception):
-                    await self._fechar_dialogo_aberto(page)
-                return resultado
-            texto_total = await self._ler_texto_total(page, total)
-            valor = _extrair_valor_brl(texto_total)
-            if valor is not None and valor == valor_anterior:
-                return classificar_detalhes(texto_total)
-            valor_anterior = valor
-            if asyncio.get_running_loop().time() >= fim:
-                raise PortalIndisponivelError("portal sem resposta no tempo esperado")
-            await asyncio.sleep(intervalo)
+                    await self._close_open_dialog(page)
+                return result
+            total_text = await self._read_total_text(page, total)
+            value = _extract_brl_value(total_text)
+            if value is not None and value == previous_value:
+                return classify_details(total_text)
+            previous_value = value
+            if asyncio.get_running_loop().time() >= deadline:
+                raise PortalUnavailableError("portal sem resposta no tempo esperado")
+            await asyncio.sleep(interval)
 
-    async def _ler_texto_total(self, page: Page, total) -> str:
-        celula = page.locator("td", has_text=self._settings.portal_total_recolher_text)
-        if await celula.count():
-            td_valor = celula.first.locator("xpath=following-sibling::td[1]")
-            if await td_valor.count():
+    async def _read_total_text(self, page: Page, total) -> str:
+        cell = page.locator("td", has_text=self._settings.portal_total_recolher_text)
+        if await cell.count():
+            value_cell = cell.first.locator("xpath=following-sibling::td[1]")
+            if await value_cell.count():
                 try:
-                    return (await td_valor.first.inner_text(timeout=1_000)).strip()
+                    return (await value_cell.first.inner_text(timeout=1_000)).strip()
                 except Exception:
                     pass
         try:
-            texto = await total.first.inner_text(timeout=1_000)
+            text = await total.first.inner_text(timeout=1_000)
         except Exception:
             return ""
-        if texto.strip():
-            return texto.strip()
+        if text.strip():
+            return text.strip()
         try:
             return (await total.first.locator("xpath=..").inner_text(timeout=1_000)).strip()
         except Exception:
             return ""
 
-    async def _selecionar_filtro(self, page: Page) -> None:
-        opcao = self._settings.portal_filtro_opcao_text
-        seletor = self._settings.portal_filtro_debitos_select
-        rotulo = self._settings.portal_filtro_debitos_label
+    async def _select_filter(self, page: Page) -> None:
+        option = self._settings.portal_filtro_opcao_text
+        selector = self._settings.portal_filtro_debitos_select
+        label = self._settings.portal_filtro_debitos_label
 
-        prime = await self._localizar_prime_select(page)
-        if prime is not None and await self._selecionar_prime_select(page, prime, opcao):
-            logger.info("filtro_selecionado", rotulo=rotulo, opcao=opcao)
+        prime = await self._locate_prime_select(page)
+        if prime is not None and await self._select_prime_select(page, prime, option):
+            logger.info("filtro_selecionado", label=label, option=option)
             return
 
-        select = page.locator(seletor)
-        if await select.count() and await self._selecionar_em_select(select.first, opcao):
-            logger.info("filtro_selecionado", seletor=seletor, opcao=opcao)
+        select = page.locator(selector)
+        if await select.count() and await self._select_option(select.first, option):
+            logger.info("filtro_selecionado", selector=selector, option=option)
             return
-        if await select.count() and await self._selecionar_prime_select(
-            page, select.first, opcao
+        if await select.count() and await self._select_prime_select(
+            page, select.first, option
         ):
-            logger.info("filtro_selecionado", seletor=seletor, opcao=opcao)
+            logger.info("filtro_selecionado", selector=selector, option=option)
             return
 
-        control = page.get_by_label(rotulo, exact=True)
-        if await control.count() and await self._selecionar_em_select(
-            control.first, opcao
+        control = page.get_by_label(label, exact=True)
+        if await control.count() and await self._select_option(
+            control.first, option
         ):
-            logger.info("filtro_selecionado", rotulo=rotulo, opcao=opcao)
+            logger.info("filtro_selecionado", label=label, option=option)
             return
 
-        rotulo_el = page.get_by_text(rotulo, exact=True)
-        if await rotulo_el.count():
-            selects = rotulo_el.first.locator("xpath=..").locator("select")
-            if await selects.count() and await self._selecionar_em_select(
-                selects.first, opcao
+        label_el = page.get_by_text(label, exact=True)
+        if await label_el.count():
+            selects = label_el.first.locator("xpath=..").locator("select")
+            if await selects.count() and await self._select_option(
+                selects.first, option
             ):
-                logger.info("filtro_selecionado", rotulo=rotulo, opcao=opcao)
+                logger.info("filtro_selecionado", label=label, option=option)
                 return
 
-        raise PortalIndisponivelError(f"filtro de débitos não encontrado: {rotulo}")
+        raise PortalUnavailableError(f"filtro de débitos não encontrado: {label}")
 
-    async def _localizar_prime_select(self, page: Page) -> Locator | None:
-        rotulo = self._settings.portal_filtro_debitos_label
-        rotulo_el = page.get_by_text(rotulo, exact=True)
-        if not await rotulo_el.count():
+    async def _locate_prime_select(self, page: Page) -> Locator | None:
+        label = self._settings.portal_filtro_debitos_label
+        label_el = page.get_by_text(label, exact=True)
+        if not await label_el.count():
             return None
-        selects = rotulo_el.first.locator(
+        selects = label_el.first.locator(
             "xpath=(ancestor::*[.//p-select])[last()]//p-select"
         )
         if not await selects.count():
             return None
         return selects.first
 
-    async def _selecionar_prime_select(
-        self, page: Page, select: Locator, opcao: str
+    async def _select_prime_select(
+        self, page: Page, select: Locator, option: str
     ) -> bool:
         combobox = select.locator("[role=combobox]")
         if not await combobox.count():
             return False
         try:
-            texto_atual = (await combobox.inner_text()).strip()
+            current_text = (await combobox.inner_text()).strip()
         except Exception:
             return False
-        if texto_atual.upper() == opcao.upper():
+        if current_text.upper() == option.upper():
             return True
         await select.click()
-        opcoes = page.get_by_role("option", name=opcao, exact=True)
-        await opcoes.first.click(timeout=self._settings.portal_result_timeout_ms)
+        options = page.get_by_role("option", name=option, exact=True)
+        await options.first.click(timeout=self._settings.portal_result_timeout_ms)
         try:
             await expect(combobox).to_have_text(
-                opcao, timeout=self._settings.portal_result_timeout_ms
+                option, timeout=self._settings.portal_result_timeout_ms
             )
         except Exception as exc:
-            raise PortalIndisponivelError(
-                f"filtro de débitos não atualizado para {opcao}"
+            raise PortalUnavailableError(
+                f"filtro de débitos não atualizado para {option}"
             ) from exc
         return True
 
-    async def _selecionar_em_select(self, select, opcao: str) -> bool:
-        opcoes = [
-            opcao_texto.strip()
-            for opcao_texto in await select.locator("option").all_inner_texts()
+    async def _select_option(self, select, option: str) -> bool:
+        options = [
+            option_text.strip()
+            for option_text in await select.locator("option").all_inner_texts()
         ]
-        if any(opcao_texto.upper() == opcao.upper() for opcao_texto in opcoes):
-            await select.select_option(label=opcao)
+        if any(option_text.upper() == option.upper() for option_text in options):
+            await select.select_option(label=option)
             return True
-        if opcoes:
-            await select.select_option(index=len(opcoes) - 1)
+        if options:
+            await select.select_option(index=len(options) - 1)
             return True
         return False
 
-    async def _recarregar_busca(self, page: Page) -> None:
+    async def _reload_search(self, page: Page) -> None:
         await page.goto(self._settings.portal_url, wait_until="load")
 
-    async def _garantir_sem_dialogo(self, page: Page) -> None:
+    async def _ensure_no_dialog(self, page: Page) -> None:
         dialog = page.locator(f"[role={self._settings.portal_dialog_role}]")
         if not (await dialog.count() and await dialog.first.is_visible()):
             return
-        await self._fechar_dialogo_aberto(page)
+        await self._close_open_dialog(page)
         try:
             await dialog.first.wait_for(state="hidden", timeout=5_000)
         except PlaywrightTimeoutError as exc:
-            raise PortalIndisponivelError("dialogo anterior nao foi fechado") from exc
+            raise PortalUnavailableError("dialog anterior nao foi fechado") from exc
 
-    async def _fechar_dialogo_aberto(self, page: Page) -> None:
+    async def _close_open_dialog(self, page: Page) -> None:
         dialog = page.locator(f"[role={self._settings.portal_dialog_role}]")
         if not (await dialog.count() and await dialog.first.is_visible()):
             return
