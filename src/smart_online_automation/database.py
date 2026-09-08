@@ -20,7 +20,7 @@ def build_session_factory(engine: AsyncEngine) -> async_sessionmaker[AsyncSessio
     return async_sessionmaker(engine, expire_on_commit=False)
 
 
-async def insert_ignorando_conflito(session: AsyncSession, model, values: list[dict]) -> int:
+async def insert_on_conflict_ignore(session: AsyncSession, model, values: list[dict]) -> int:
     stmt = pg_insert(model).values(values).on_conflict_do_nothing(
         index_elements=[model.chave]
     )
