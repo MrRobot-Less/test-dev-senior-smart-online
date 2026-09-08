@@ -41,6 +41,29 @@ uv run python -m smart_online_automation run --all
 
 Chaves informadas em `--key` que ainda não existem no banco são cadastradas como pendentes automaticamente.
 
+## Testes
+
+os testes são pytest para rodar todos:
+
+```bash
+docker compose up -d db
+uv run pytest
+```
+
+se o banco estiver fora do ar os testes que dependem dele são pulados com um aviso explicando o motivo.
+para rodar apenas um arquivo ou um teste específico:
+
+```bash
+uv run pytest tests/test_database.py
+uv run pytest tests/test_database.py -k "nome_do_teste"
+```
+
+para listar os testes sem executar:
+
+```bash
+uv run pytest --collect-only
+```
+
 ## Como funciona a consulta
 
 O robô preenche a chave, seleciona "TODOS" no filtro Débitos (em Dados Complementares) e pesquisa. Na página seguinte, quando carregada, o resultado é decidido pelo valor monetário ao lado de "Total a Recolher": `R$ 0,00` -> `SEM_DEBITO`; valor maior que zero -> `DEBITO` com esse valor. Se o portal responder com o diálogo de informação em vez de navegar, o diálogo é classificado da mesma forma. Cada consulta recarrega a página de busca
