@@ -17,14 +17,14 @@ CHAVE = "33260829612882000128550040000113801131657747"
 
 async def test_seed_insere_chaves_uma_vez(session_factory) -> None:
     async with session_factory() as session:
-        assert await seed_keys(session) == 7
+        assert await seed_keys(session) == len(SEED_KEYS)
         await session.commit()
         assert await seed_keys(session) == 0
         await session.commit()
 
     async with session_factory() as session:
         chaves = (await session.scalars(select(ConsultaNfe))).all()
-        assert len(chaves) == 7
+        assert len(chaves) == len(SEED_KEYS)
         assert all(c.status == STATUS_PENDENTE for c in chaves)
         assert {c.chave for c in chaves} == set(SEED_KEYS)
 
