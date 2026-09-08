@@ -14,7 +14,21 @@ class Settings(BaseSettings):
     app_env: str = "development"
     debug: bool = False
 
-    base_url: str = "https://example.com"
+    portal_url: str = (
+        "https://portal-sitram.sefaz.ce.gov.br/sitram-internet/"
+        "#/pagamento-icms/por-nota-fiscal/fiscal"
+    )
+    portal_input_placeholder: str = "Insira aqui uma chave de acesso (NF-e)"
+    portal_search_button: str = "Pesquisar"
+    portal_dialog_role: str = "dialog"
+    portal_dismiss_button: str = ".modal-confirm .button-text"
+    portal_total_recolher_text: str = "Total a Recolher"
+    portal_filtro_debitos_label: str = "Débitos"
+    portal_filtro_debitos_select: str = "#pn_id_7"
+    portal_filtro_opcao_text: str = "TODOS"
+    portal_filtro_espera_ms: int = 500
+    portal_result_timeout_ms: int = 45_000
+
     browser: str = "chromium"
     headless: bool = True
     slow_mo: int = 0
