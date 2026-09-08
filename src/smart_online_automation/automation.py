@@ -1,6 +1,6 @@
 from typing import Any
 
-from playwright.sync_api import Browser, Page, Playwright, sync_playwright
+from playwright.async_api import Browser, Page, Playwright, async_playwright
 from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_fixed
 
 from smart_online_automation.config import Settings
@@ -25,29 +25,35 @@ class BrowserAutomation:
             reraise=True,
         )(self._open)
 
-    def __enter__(self) -> BrowserAutomation:
-        self._pw = sync_playwright().start()
-        self._browser = getattr(self._pw, self._settings.browser).launch(
+    async def __aenter__(self) -> BrowserAutomation:
+        self._pw = await async_playwright().start()
+        self._browser = await getattr(self._pw, self._settings.browser).launch(
             headless=self._settings.headless,
             slow_mo=self._settings.slow_mo,
         )
         return self
 
-    def __exit__(self, exc_type: Any, exc: Any, tb: Any) -> None:
+    async def __aexit__(self, exc_type: Any, exc: Any, tb: Any) -> None:
         if self._browser is not None:
-            self._browser.close()
+            try:
+                await self._browser.close()
+            except Exception as exc:
+                logger.warning("browser_close_falhou", error=str(exc))
         if self._pw is not None:
-            self._pw.stop()
+            try:
+                await self._pw.stop()
+            except Exception as exc:
+                logger.warning("playwright_stop_falhou", error=str(exc))
 
-    def _open(self, url: str) -> Page:
+    async def _open(self, url: str) -> Page:
         if self._browser is None:
             raise RuntimeError("automation not started")
-        page = self._browser.new_page()
+        page = await self._browser.new_page()
         page.set_default_timeout(self._settings.navigation_timeout_ms)
         try:
-            page.goto(url, wait_until="load")
+            await page.goto(url, wait_until="load")
         except Exception as exc:
-            page.close()
+            await page.close()
             logger.warning("navigation_failed", url=url, error=str(exc))
             raise NavigationError(f"failed to navigate to {url}") from exc
         return page
