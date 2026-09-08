@@ -10,7 +10,9 @@ services:
     depends_on:
       db:
         condition: service_healthy
-    command: uv run python -m smart_online_automation
+    command: >
+      sh -c "uv run python -m smart_online_automation seed &&
+             uv run python -m smart_online_automation run"
 
   db:
     image: postgres:17-alpine

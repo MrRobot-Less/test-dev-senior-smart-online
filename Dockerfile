@@ -10,10 +10,11 @@ COPY --from=ghcr.io/astral-sh/uv:latest /uv /uvx /bin/
 WORKDIR /app
 
 COPY pyproject.toml uv.lock ./
+COPY src ./src
 RUN uv sync --frozen --no-dev
 
 RUN uv run playwright install --with-deps chromium
 
 COPY . .
 
-CMD ["uv", "run", "python", "-m", "smart_online_automation"]
+CMD ["uv", "run", "python", "-m", "smart_online_automation", "run", "--headless"]
