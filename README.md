@@ -87,3 +87,21 @@ ORDER BY status;
 ```
 
 para ver um resumo rode com o comando `review`
+
+
+para testar os retries um exemplo interessante seria justamente desligar a internet, as configurações do retry estão no env
+
+uma breve descrição das variaveis de ambiente:
+
+`APP_SLOW_MO`: tempo entre as ações do bot
+`APP_NAVIGATION_TIMEOUT_MS`: tempo máximo que a navegação pode demorar
+`APP_PORTAL_DISMISS_BUTTON`: query selector para localizar o botão para o modal do portal
+`APP_PORTAL_TOTAL_RECOLHER_TEXT`: o texto que utilizo para localizar os débitos no portal
+`APP_PORTAL_FILTRO_DEBITOS_LABEL`: label para localizar o filtro de débitos (selecionamos a opção TODOS)
+`APP_PORTAL_FILTRO_OPCAO_TEXT`: opção para seleção de débitos
+`APP_PORTAL_FILTRO_ESPERA_MS`: delay para selecionar a opção TODOS
+`APP_PORTAL_RESULT_TIMEOUT_MS`: tempo de espera para fazer a pesquisa
+`APP_RETRY_MAX_ATTEMPTS`: maxímo de tentativas antes de retornar o erro
+`APP_RETRY_WAIT_SECONDS`: tempo entre as tentativas
+`APP_DB_RETRY_MAX_ATTEMPTS`: tentativas de se conectar com o banco de dados
+`APP_DB_RETRY_WAIT_SECONDS`: tempo de espera entre as tentativas

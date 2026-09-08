@@ -23,10 +23,32 @@ from smart_online_automation.seed import SEED_KEYS, seed_keys
 logger = get_logger("main")
 
 
-async def seed(settings: Settings) -> None:
+async def _garantir_esquema(settings: Settings, resetar: bool = False):
     engine = build_engine(settings.database_url)
-    async with engine.begin() as conn:
-        await conn.run_sync(Base.metadata.create_all)
+    ultimo_erro: Exception | None = None
+    for tentativa in range(settings.db_retry_max_attempts):
+        try:
+            async with engine.begin() as conn:
+                if resetar:
+                    await conn.run_sync(Base.metadata.drop_all)
+                await conn.run_sync(Base.metadata.create_all)
+            return engine
+        except Exception as exc:
+            ultimo_erro = exc
+            if tentativa + 1 >= settings.db_retry_max_attempts:
+                break
+            logger.warning(
+                "banco_instavel", tentativa=tentativa + 1, error=str(exc)
+            )
+            await asyncio.sleep(settings.db_retry_wait_seconds)
+    await engine.dispose()
+    if ultimo_erro is None:
+        ultimo_erro = RuntimeError("sem tentativas de conexao configuradas")
+    raise ultimo_erro
+
+
+async def seed(settings: Settings) -> None:
+    engine = await _garantir_esquema(settings)
     async with build_session_factory(engine)() as session:
         inseridas = await seed_keys(session)
         await session.commit()
@@ -35,9 +57,7 @@ async def seed(settings: Settings) -> None:
 
 
 async def review(settings: Settings) -> None:
-    engine = build_engine(settings.database_url)
-    async with engine.begin() as conn:
-        await conn.run_sync(Base.metadata.create_all)
+    engine = await _garantir_esquema(settings)
     async with build_session_factory(engine)() as session:
         registros = (await session.scalars(select(ConsultaNfe).order_by(ConsultaNfe.chave))).all()
         for registro in registros:
@@ -51,10 +71,7 @@ async def review(settings: Settings) -> None:
 
 
 async def reset(settings: Settings) -> None:
-    engine = build_engine(settings.database_url)
-    async with engine.begin() as conn:
-        await conn.run_sync(Base.metadata.drop_all)
-        await conn.run_sync(Base.metadata.create_all)
+    engine = await _garantir_esquema(settings, resetar=True)
     async with build_session_factory(engine)() as session:
         inseridas = await seed_keys(session)
         await session.commit()
@@ -158,9 +175,7 @@ async def _processar_chave(
 async def run(
     settings: Settings, chaves: list[str] | None = None, todo: bool = False
 ) -> None:
-    engine = build_engine(settings.database_url)
-    async with engine.begin() as conn:
-        await conn.run_sync(Base.metadata.create_all)
+    engine = await _garantir_esquema(settings)
     session_factory = build_session_factory(engine)
     alvo = await _definir_alvo(session_factory, chaves, todo)
     if not alvo:
